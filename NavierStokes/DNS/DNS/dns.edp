@@ -1,0 +1,166 @@
+		include "../Common/intro.edp"
+
+		// Read initial iteration number
+		int iter;			// current iteration
+		real tps;			// current time
+		{
+                 ifstream file("iter.txt");
+                 file >> iter;
+				 file >> tps;
+        }
+		
+		// NL=0: linearized simulations, NL=1: non-linear simulations
+		int NL=1;
+		
+		// Read number of iterations to perform and time step
+		real dt;
+		int nbre;
+		{
+		 ifstream file("data.txt");
+		 file >> nbre;
+		 file >> dt;
+		};
+		// Molecular kinematic viscosity
+		real nu=1./Re;
+
+		Uvvp [u1,u2,p];			// current flowfield
+		Uvvp [up1,up2,pp];		// flowfield at previous time-step
+		Uvvp [upp1,upp2,ppp];	// flowfield at previous previous time-step
+		Uvvp [sm1,sm2,sm3];
+		Uvvp [nlp1,nlp2,nlpp];	//	non-linear right-hand-side at previous time-step  
+		Uvvp [nlpp1,nlpp2,nlppp];	//	non-linear right-hand-side at previous previous time-step
+		
+        real a0,a1,a2,bet0,bet1;	// coefficient for time-integration scheme
+
+	// Read base-flow (the code is written in perturbative form)
+	Uvvp [ub1,ub2,pb];
+	ifstream file("../BF/cbf.txt");
+	file >> ub1[];
+
+    a0=1./dt; a1=-1./dt; a2=0; bet0=1; bet1=0;	// coefficients for first-order in time integration
+
+	// Linearized Navier-Stokes operator with time-stepping
+	varf NS([du1,du2,dp],[v1,v2,q])=
+    		   int2d(th)(
+ 	    	      (a0*du1*v1 + a0*du2*v2) 
+            		+ nu*(dx(du1)*dx(v1)+dy(du1)*dy(v1)
+            		     +dx(du2)*dx(v2)+dy(du2)*dy(v2))
+			+ v1*(du1*dx(ub1)+du2*dy(ub1)+ub1*dx(du1)+ub2*dy(du1))
+			+ v2*(du1*dx(ub2)+du2*dy(ub2)+ub1*dx(du2)+ub2*dy(du2))
+            		- dp*(dx(v1)+dy(v2))
+            		+ q*(-dx(du1)-dy(du2)))
+  		   +on(1,2,du1=0,du2=0)
+		   +on(4,du2=0);
+    matrix A=NS(Uvvp,Uvvp,solver=sparsesolver);
+
+	// Non-linear term at the right-hand-side	   
+    varf sm([du1,du2,dp],[v1,v2,q])=
+		 int2d(th) (-v1*(u1*dx(u1)+u2*dy(u1))
+                    -v2*(u1*dx(u2)+u2*dy(u2)))
+  		   +on(1,2,du1=0,du2=0)
+		   +on(4,du2=0);
+		   
+	// Mass-matrix or scalar-product	
+    varf Pscal([du1,du2,dp],[v1,v2,q])
+          =int2d(th)(du1*v1+du2*v2);
+	matrix MatPscal=Pscal(Uvvp,Uvvp,solver=CG);
+
+	// Check CFL number and mesh Reynolds-number
+    {
+      Uv cfl=sqrt(ub1^2+ub2^2)*dt/hTriangle;
+      Uv rem=sqrt(ub1^2+ub2^2)*hTriangle/nu;
+      cout << "cfl max=" << cfl[].max << endl;
+      cout << "rem max=" << rem[].max << endl;
+    }
+
+	// Initialize main output file
+	string filename2="out_"+iter+".txt";
+    {
+	    ofstream filephi(filename2);
+	};
+
+	// Read initial condition for flowfield
+	if(iter==0)
+	{
+		ifstream file("startvector.txt");
+		file >> u1[];
+	}
+    else
+    {
+		ifstream file("vect/utot_"+iter+".txt");
+		file >> u1[];
+    };
+
+		// compute perturbation energy
+   		sm1[]=MatPscal*u1[];
+   		real nrjp=u1[]'*sm1[];
+
+	// Write output
+	{
+		ofstream filephi(filename2,append);
+		filephi << tps << " " 
+				<< nrjp << " "
+				 << u1(1.,0.) << " " 
+				 << u2(1.,0.) << " " 
+				 << u1(5.,0.) << " "  
+				 << u2(5.,0.) << endl;  
+	};
+	
+	// Time-iteration
+	for (int i=iter+1;i<=iter+nbre; i++)
+ 	{
+	    cout << " i = " << i << endl;
+	    cout << " tps = " << tps << endl << endl;
+
+        upp1[]=up1[];
+        up1[]=MatPscal*u1[];
+		if(NL==1)	// if NL=1, compute non-linear terms
+		{
+			nlpp1[]=nlp1[];
+			nlp1[]=sm(0,Uvvp); 
+		}
+             
+		// After five iterations, switch to 2nd order time-scheme
+        if(i==(iter+5))
+        {
+            a0=1.5/dt; a1=-2./dt; a2=0.5/dt; bet0=2; bet1=-1;
+            A=NS(Uvvp,Uvvp,solver=sparsesolver);
+        }
+
+		// Build right-hand-side
+        sm1[]=-a1*up1[]-a2*upp1[];
+		if(NL==1)	// if NL=1, take into account non-linear terms
+			sm1[]+=bet0*nlp1[]+bet1*nlpp1[];
+
+        u1[]=A^-1*sm1[]; // Invert linearized Navier-Stokes matrix
+
+		tps+=dt; // update current time
+
+		// compute perturbation energy
+   		sm1[]=MatPscal*u1[];
+   		real nrjp=u1[]'*sm1[];
+
+		// Write output
+		{
+			ofstream filephi(filename2,append);
+			filephi << tps << " " 
+   				 << nrjp << " "
+				 << u1(1.,0.) << " " 
+				 << u2(1.,0.) << " " 
+				 << u1(5.,0.) << " "  
+				 << u2(5.,0.) << endl;  
+		};
+
+		// Save current flowfield every 1000 time steps
+		if((i%100)==1)
+		{
+            ofstream file("vect/utot_"+i+".txt");
+            file << u1[] << endl;
+            ofstream file2("iter.txt");
+            file2 << i << endl;
+            file2 << tps << endl;
+
+		};
+
+	};
+

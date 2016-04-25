@@ -1,0 +1,79 @@
+		load "MUMPS_seq"
+		defaulttoMUMPSseq();
+
+		real U=1;
+		real mu0=0.8;
+		real mu2=0.01;
+		real cu=0.1;
+		real cd=-1;
+		complex nu=2+2*cu*1i;
+		complex gamma=1+cd*1i;
+		
+		real xmin=-30;
+		real xmax=100;
+		real deltax=0.05;
+
+		complex a=mu0-cu^2-nu^2/4./gamma-(0.5)*sqrt(2*mu2*gamma);
+		cout << "eig=" << a << endl;
+		complex s=1-0.5*1i;
+		
+		mesh th = square(round((xmax-xmin)/deltax),1,[xmin+(xmax-xmin)*x,y*deltax]);
+		plot(th,wait=1);
+		fespace W(th,P2);
+		
+		W rep=(abs(y)<deltax/10.);		
+		
+		// Linearized Navier-Stokes operator with time-stepping
+		varf LKS(w,t)=int1d(th,1)(-nu*dx(w)*t+((mu0-cu^2)-mu2/2*x^2)*w*t-gamma*dx(w)*dx(t)-s*w*t)+on(4,2,w=0);			   
+        matrix<complex> MatLKS=LKS(W,W,solver=GMRES);
+		{
+				complex[int] diagofMatLKS(MatLKS.n);
+				diagofMatLKS=MatLKS.diag;
+				for(int ii=0; ii<MatLKS.n; ii++)
+				{
+					if(rep[][ii]==0.)
+					{
+						diagofMatLKS(ii)=1.e30;
+					}
+				} 
+				MatLKS.diag=diagofMatLKS;
+		}
+		set(MatLKS,solver=sparsesolver);
+			   
+		// Mass-matrix or scalar-product	
+		varf Mass(w,t)=int1d(th,1)(w*t);
+		matrix<complex> MatMass=Mass(W,W,solver=CG);
+
+// Quantities needed for eigenvalue solver
+int nev=10;
+complex[int] ev(nev); // to store nev eigenvalues 
+W<complex>[int] w(nev);   // to store nev eigenvectors  
+int k; // number of converged eigenvalues 
+		
+cout << "Eigenvalue solve" << endl;
+k=EigenValue(MatLKS,MatMass,sigma=s,value=ev,vector=w,tol=1e-10,maxit=90000,ncv=50);
+k=min(k,nev);	//  some time the number of converged eigen value 
+				// can be greater than nev;
+
+
+// file to store eigenvalues
+ofstream file("vp.txt");
+file.precision(16);
+
+W xx=x;
+// Loop on converged eigenvalues
+for (int kk=0;kk<k;kk++)
+{
+	// Save kkth eigenvalue
+	file << real(ev[kk]) << " " << imag(ev[kk]) << " " << kk << endl;
+	W<complex> ww=w[kk];
+	{
+		ofstream fifi("ev"+kk+".txt");
+		fifi.precision(16);
+		for(int ii=0; ii<rep.n; ii++)
+		{
+		 if(rep[][ii]!=0.)
+			fifi << xx[][ii] << " " << real(ww[][ii]) << " " << imag(ww[][ii]) << endl;
+		}
+	}
+}

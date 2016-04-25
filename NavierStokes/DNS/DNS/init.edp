@@ -1,0 +1,19 @@
+	include "../Common/intro.edp"
+	Uvvp [u,v,p];
+ 
+	for(int ii=0; ii<u.n; ii++)
+		u[][ii]=(randreal1()-0.5)*1e-2;
+			
+   {
+         ofstream file("startvector.txt");
+         file.precision(16);
+         file << u[] << endl;
+    };
+
+    {
+         ofstream file("iter.txt");
+         file.precision(16);
+         file << 0 << endl;
+         file << 0 << endl;
+	};
+         

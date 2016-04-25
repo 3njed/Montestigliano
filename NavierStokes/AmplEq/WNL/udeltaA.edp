@@ -1,0 +1,97 @@
+	include "../Common/intro.edp";
+	real nu=1./Re;
+
+	complex s;	// Read frequency of global mode
+	{
+		real sr,si;
+		{
+			ifstream file("../eigs/vp.txt");
+			file >> sr >> si;
+		}
+		s=sr+1i*si;
+		cout << s << endl;
+	}
+
+	Uvvp<complex> [ud,vd,pd];
+	{
+		ifstream file("../Eigs/ev0.txt");
+		file >> ud[];
+	}
+	
+	varf Mass([du1,du2,dp],[v1,v2,q]) = int2d(th)(du1*v1+du2*v2);
+	matrix<complex> MatMass=Mass(Uvvp,Uvvp,solver=CG);
+	Uvvp<complex> [udMass,vdMass,pdMass]; udMass[]=MatMass*ud[];
+	
+	matrix<complex> NSMAT;	// Build linearized Navier-Stokes matrix
+	{
+		Uvvp [ub1,ub2,pb];	// Read base-flow
+		{
+		 ifstream file("../BF/cbf.txt");
+		 file >> ub1[];
+		};
+
+		varf NS([du1,du2,dp],[v1,v2,q]) =	// Weak form of linearized Navier-Stokes operator
+     		int2d(th)(
+				s*(du1*v1+du2*v2)
+            	+((ub1*dx(du1)+du1*dx(ub1)+ub2*dy(du1)+du2*dy(ub1))*v1)
+            	+((ub1*dx(du2)+du1*dx(ub2)+ub2*dy(du2)+du2*dy(ub2))*v2)
+            	+ nu*(dx(du1)*dx(v1)+dy(du1)*dy(v1))
+            	+ nu*(dx(du2)*dx(v2)+dy(du2)*dy(v2))
+            	- dp*(dx(v1)+dy(v2))
+            	+ (dx(du1)+dy(du2))*q
+           	)
+  		+on(1,2,du1=0.,du2=0.)
+		+on(4,du2=0.);
+		matrix<complex> A=NS(Uvvp,Uvvp,solver=GMRES);
+		NSMAT=[[A,udMass[]],[udMass[]',0.0+0.0*1i]];
+		set(NSMAT,solver=sparsesolver);
+	};
+
+	complex[int] rhsc(Uvvp.ndof+1); // Build right hand-side
+	{	
+		Uvvp [udelta,vdelta,pdelta];
+		{
+			ifstream file("cbdelta.txt");
+			file >> udelta[];
+		}
+		
+		varf SMNS([du1,du2,dp],[v1,v2,q])=	// Weak form of forcing term involving interaction of global mode with himself 
+		-int2d(th)(
+						v1*(ud*dx(udelta)+vd*dy(udelta)+udelta*dx(ud)+vdelta*dy(ud)+dxx(ud)+dyy(ud))
+					   +v2*(ud*dx(vdelta)+vd*dy(vdelta)+udelta*dx(vd)+vdelta*dy(vd)+dxx(vd)+dyy(vd))
+					   )
+  		+on(1,2,du1=0,du2=0)
+		+on(4,du2=0);
+		Uvvp<complex> [uu,vv,pp]; uu[]=SMNS(0,Uvvp);
+		rhsc=[uu[],0.0+0.0*1i];
+	};
+
+	complex[int] solc(Uvvp.ndof+1); // solution
+	solc=NSMAT^-1*rhsc;
+	
+	Uvvp<complex> [udeltaA,vdeltaA,pdeltaA];	// Compute second harmonic due to global mode
+	complex lambda;
+	[udeltaA[],lambda]=solc;
+
+	{
+		 ofstream file("cbdeltaA.txt");
+		 file.precision(16);
+		 file << udeltaA[];
+    };
+
+	cout << "lambda=" << lambda << endl;
+
+	{
+		ofstream file("lambda2.txt");
+		file.precision(16);
+		file << lambda << endl;
+	};	
+	Uv uu;
+	uu=real(udeltaA); plot(uu,wait=1,value=1,fill=1);
+	uu=real(vdeltaA); plot(uu,wait=1,value=1,fill=1);
+	uu=imag(udeltaA); plot(uu,wait=1,value=1,fill=1);
+	uu=imag(vdeltaA); plot(uu,wait=1,value=1,fill=1);
+
+	Up pp;
+	pp=real(pdeltaA); plot(pp,wait=1,value=1,fill=1);
+	pp=imag(pdeltaA); plot(pp,wait=1,value=1,fill=1);

@@ -1,0 +1,35 @@
+		include "../Common/intro.edp";
+
+		Uvvp<complex> [ua,va,pa];	// Read adjoint global mode
+		{
+			ifstream file("../Eigs/ea_scaled0.txt");
+			file >> ua[];
+		}
+		Uvvp<complex> [ud,vd,pd];	// Read direct global mode
+		{
+			ifstream file("../Eigs/ev0.txt");
+			file >> ud[];
+		}
+		Uvvp [udelta,vdelta,pdelta];	// Read udelta term, i.e. modification of base-flow due to increase of Reynolds number
+		{
+		 ifstream file("cbdelta.txt");
+		 file >> udelta[];
+		};
+
+		complex lambda=
+		-int2d(th)(		// term involving modification of base-flow udelta due to increase of Reynolds number
+			conj(ua)*(udelta*dx(ud)+vdelta*dy(ud)+ud*dx(udelta)+vd*dy(udelta))
+			+conj(va)*(udelta*dx(vd)+vdelta*dy(vd)+ud*dx(vdelta)+vd*dy(vdelta))
+		)
+		-int2d(th)(		// term involving modification of global mode due to increase of Reynolds number
+			conj(ua)*(dxx(ud)+dyy(ud))
+			+conj(va)*(dxx(vd)+dyy(vd))
+		);
+
+		cout << "lambda=" << lambda << endl;
+
+		{
+		 ofstream file("lambda.txt");
+		 file.precision(16);
+		 file << lambda << endl;
+		};

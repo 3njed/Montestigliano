@@ -1,0 +1,79 @@
+	include "../Common/intro.edp";
+	real nu=1./Re;
+
+	complex s;	// Read frequency of global mode
+	{
+		real sr,si;
+		{
+			ifstream file("../eigs/vp.txt");
+			file >> sr >> si;
+		}
+		s=sr+1i*si;
+		cout << s << endl;
+	}
+	
+	matrix<complex> NSMAT;	// Build linearized Navier-Stokes matrix
+	{
+		Uvvp [ub1,ub2,pb];	// Read base-flow
+		{
+		 ifstream file("../BF/cbf.txt");
+		 file >> ub1[];
+		};
+
+		varf NS([du1,du2,dp],[v1,v2,q]) =	// Weak form of linearized Navier-Stokes operator
+     		int2d(th)(
+				3.*s*(du1*v1+du2*v2)
+            	+((ub1*dx(du1)+du1*dx(ub1)+ub2*dy(du1)+du2*dy(ub1))*v1)
+            	+((ub1*dx(du2)+du1*dx(ub2)+ub2*dy(du2)+du2*dy(ub2))*v2)
+            	+ nu*(dx(du1)*dx(v1)+dy(du1)*dy(v1))
+            	+ nu*(dx(du2)*dx(v2)+dy(du2)*dy(v2))
+            	- dp*(dx(v1)+dy(v2))
+            	+ (dx(du1)+dy(du2))*q
+           	)
+  		+on(1,2,du1=0.,du2=0.)
+		+on(4,du2=0.);
+		NSMAT=NS(Uvvp,Uvvp,solver=sparsesolver);
+	};
+
+	Uvvp<complex> [r1,r2,r3];	// Build right hand-side
+	{	
+		Uvvp<complex> [ud,vd,pd];
+		{
+			ifstream file("../Eigs/ev0.txt");
+			file >> ud[];
+		}
+		Uvvp<complex> [uAA,vAA,pAA];
+		{
+			ifstream file("cbAA.txt");
+			file >> uAA[];
+		}
+		
+		varf SMNS([du1,du2,dp],[v1,v2,q])=	// Weak form of forcing term involving interaction of global mode with himself 
+		-int2d(th)(
+						v1*(ud*dx(uAA)+vd*dy(uAA)+uAA*dx(ud)+vAA*dy(ud))
+					   +v2*(ud*dx(vAA)+vd*dy(vAA)+uAA*dx(vd)+vAA*dy(vd))
+		)
+  		+on(1,2,du1=0,du2=0)
+		+on(4,du2=0);
+
+		r1[]=SMNS(0,Uvvp);
+	};
+
+	Uvvp<complex> [uAAA,vAAA,pAAA];	// Compute second harmonic due to global mode
+	uAAA[]=NSMAT^-1*r1[];
+
+	{
+		 ofstream file("cbAAA.txt");
+		 file.precision(16);
+		 file << uAAA[];
+    };
+	
+	Uv uu;
+	uu=real(uAAA); plot(uu,wait=1,value=1,fill=1);
+	uu=real(vAAA); plot(uu,wait=1,value=1,fill=1);
+	uu=imag(uAAA); plot(uu,wait=1,value=1,fill=1);
+	uu=imag(vAAA); plot(uu,wait=1,value=1,fill=1);
+
+	Up pp;
+	pp=real(pAAA); plot(pp,wait=1,value=1,fill=1);
+	pp=imag(pAAA); plot(pp,wait=1,value=1,fill=1);

@@ -1,0 +1,164 @@
+		load "MUMPS_seq"
+		defaulttoMUMPSseq();
+
+		string filename="out.txt";
+		{
+			ofstream file(filename);
+		}
+		
+		int NL=1;
+		real dt=0.01;
+
+		real U=1;
+		real mu0=0.8;
+		real mu2=0.01;
+		real cu=0.1;
+		real cd=-1;
+		complex nu=2+2*cu*1i;
+		complex gamma=1+cd*1i;
+		
+		real xmin=-30;
+		real xmax=100;
+		real deltax=0.05;
+
+		complex a=mu0-cu^2-nu^2/4./gamma-(0.5)*sqrt(2*mu2*gamma);
+		cout << "eig=" << a << endl;
+		complex s=1-0.5*1i;
+				
+		real a0,a1,a2,bet0,bet1;
+		a0=1./dt; a1=-1./dt; a2=0; bet0=1.; bet1=0;	// start with first order time integration
+
+		mesh th = square(round((xmax-xmin)/deltax),1,[xmin+(xmax-xmin)*x,y*deltax]);
+		plot(th,wait=1);
+		fespace W(th,P2);
+
+		W rep=(abs(y)<deltax/10.);		
+		
+		// Linearized Navier-Stokes operator with time-stepping
+		varf LKS(w,w1)=int1d(th,1)(a0*w*w1+nu*dx(w)*w1-((mu0-cu^2)-mu2/2*x^2)*w*w1+gamma*dx(w)*dx(w1))+on(4,2,w=0);
+        matrix<complex> MatLKS=LKS(W,W,solver=GMRES);
+		{
+				complex[int] diagofMatLKS(MatLKS.n);
+				diagofMatLKS=MatLKS.diag;
+				for(int ii=0; ii<MatLKS.n; ii++)
+				{
+					if(rep[][ii]==0.)
+					{
+						diagofMatLKS(ii)=1.e30;
+					}
+				} 
+				MatLKS.diag=diagofMatLKS;
+		}
+		set(MatLKS,solver=sparsesolver);
+
+		// Mass-matrix or scalar-product
+		varf Mass(w,w1)=int1d(th,1)(w*w1);
+		matrix<complex> MatMass=Mass(W,W,solver=CG);
+
+		W<complex> w,wp,wpp,nlp,nlpp,rhs;
+		
+		// Non-linear term at the right-hand-side	   
+		varf conv(ww,w1)=int1d(th,1)(-w*abs(w)^2*w1);
+		   
+		for(int ii=0; ii<w.n; ii++)
+			if(rep[][ii]==1.)
+				w[][ii]=(randreal1()-0.5)*1e-4;
+
+		W xx=x;
+		{
+		ofstream fifi("snap_0.txt");
+		fifi.precision(16);
+		for(int ii=0; ii<rep.n; ii++)
+		{
+		 if(rep[][ii]!=0.)
+		 	fifi << xx[][ii] << " " << real(w[][ii]) << " " << imag(w[][ii]) << endl;
+		}
+		}
+		real tps=0;
+		rhs[]=MatMass*w[];		
+   		complex nrjp=w[]'*rhs[];
+		{
+			ofstream filephi(filename,append);
+			filephi << tps << " " 
+   				 << real(nrjp) << " "
+				 << real(w(-10,0.)) << " " 
+				 << real(w(-5,0.)) << " " 
+				 << real(w(0,0.)) << " " 
+				 << real(w(5,0.)) << " " 
+				 << real(w(10,0.)) << " "
+				 << real(w(15,0.)) << " "
+				 << real(w(20,0.)) << " "
+				 << real(w(25,0.)) << endl;
+		};
+
+// Time-iteration
+for (int i=1;i<=10000; i++)
+{
+	    cout << " i = " << i << endl;
+	    cout << " tps = " << tps << endl << endl;
+
+        wpp[]=wp[];
+		wp[]=MatMass*w[];
+		if(NL==1)	// if NL=1, compute non-linear terms
+		{
+			nlpp[]=nlp[];
+			nlp[]=conv(0,W); 
+		}
+             
+		// After five iterations, switch to 2nd order time-scheme
+        if(i==5)
+        {
+            a0=1.5/dt; a1=-2./dt; a2=0.5/dt; bet0=2; bet1=-1;
+            MatLKS=LKS(W,W,solver=GMRES);
+			{
+				complex[int] diagofMatLKS(MatLKS.n);
+				diagofMatLKS=MatLKS.diag;
+				for(int ii=0; ii<MatLKS.n; ii++)
+				{
+					if(rep[][ii]==0.)
+					{
+						diagofMatLKS(ii)=1.e30;
+					}
+				} 
+				MatLKS.diag=diagofMatLKS;
+			}
+			set(MatLKS,solver=sparsesolver);
+        }
+		
+		// Build right-hand-side
+        rhs[]=-a1*wp[]-a2*wpp[];
+		if(NL==1)	// if NL=1, take into account non-linear terms
+			rhs[]+=bet0*nlp[]+bet1*nlpp[];
+        w[]=MatLKS^-1*rhs[]; // Invert linearized Navier-Stokes matrix
+		tps+=dt; // update current time
+
+		// compute perturbation energy
+   		rhs[]=MatMass*w[];
+   		complex nrjp=w[]'*rhs[];
+
+		// Write output
+		{
+			ofstream filephi(filename,append);
+			filephi << tps << " " 
+   				 << real(nrjp) << " "
+				 << real(w(-10,0.)) << " " 
+				 << real(w(-5,0.)) << " " 
+				 << real(w(0,0.)) << " " 
+				 << real(w(5,0.)) << " " 
+				 << real(w(10,0.)) << " "
+				 << real(w(15,0.)) << " "
+				 << real(w(20,0.)) << " "
+				 << real(w(25,0.)) << endl;
+		};
+	
+		if(i%100==1)
+		{
+		ofstream fifi("snap_"+i+".txt");
+		fifi.precision(16);
+		for(int ii=0; ii<rep.n; ii++)
+		{
+		 if(rep[][ii]!=0.)
+			fifi << xx[][ii] << " " << real(w[][ii]) << " " << imag(w[][ii]) << endl;
+		}
+	}
+}

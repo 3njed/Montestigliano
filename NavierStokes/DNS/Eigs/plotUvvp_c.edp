@@ -1,0 +1,27 @@
+include "../Common/intro.edp";
+
+Uvvp<complex> [u,v,p];
+{
+ ifstream file("ev0.txt");
+ file >> u[];
+}
+
+Uv uu,vv,xx,yy;
+Up pp;
+
+uu=real(u);
+vv=real(v);
+pp=real(p);
+
+plot(uu,wait=1,value=1,fill=1);
+plot(vv,wait=1,value=1,fill=1);
+plot(pp,wait=1,value=1,fill=1);
+
+xx=x;
+yy=y;
+
+ofstream file2("cb.dat");
+for(int i=0; i<Uv.ndof; i++)
+{
+ file2 << xx[][i] << " " << yy[][i] << " " << uu[][i] << " " << vv[][i] << endl;
+}
